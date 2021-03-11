@@ -55,26 +55,6 @@ void show_color(const CRGB& color, uint32_t sleep = START_FLASHES)
     delay(sleep);
 }
 
-void setup()
-{
-    FastLED.addLeds<WS2812, LED_PIN, GRB> (strip, NUM_LEDS);
-    if (CURRENT_LIMIT > 0)
-    {
-        FastLED.setMaxPowerInVoltsAndMilliamps(5, CURRENT_LIMIT);
-    }
-
-    if (START_FLASHES > 0)
-    {
-        show_color(CRGB(255, 0, 0));
-        show_color(CRGB(0, 255, 0));
-        show_color(CRGB(0, 0, 255));
-        show_color(CRGB(0, 0, 0));
-    }
-
-    Serial.begin(SERIAL_RATE);
-    Serial.print("Ada\n");
-}
-
 bool is_enabled()
 {
     static bool enabled = true;
@@ -112,6 +92,34 @@ bool is_enabled()
     return enabled;
 }
 
+void flash_frame_data()
+{
+  while(Serial.available())
+  {
+    Serial.read();
+  }
+}
+
+void setup()
+{
+    FastLED.addLeds<WS2812, LED_PIN, GRB> (strip, NUM_LEDS);
+    if (CURRENT_LIMIT > 0)
+    {
+        FastLED.setMaxPowerInVoltsAndMilliamps(5, CURRENT_LIMIT);
+    }
+
+    if (START_FLASHES > 0)
+    {
+        show_color(CRGB(255, 0, 0));
+        show_color(CRGB(0, 255, 0));
+        show_color(CRGB(0, 0, 255));
+        show_color(CRGB(0, 0, 0));
+    }
+
+    Serial.begin(SERIAL_RATE);
+    Serial.print("Ada\n");
+}
+
 void loop()
 {
     if (!is_enabled())
@@ -129,4 +137,6 @@ void loop()
     }
 
     FastLED.show();
+    // FastLED.show() disables interrupts while writing out WS2812 data. It leads to getting corrupted frames. 
+    flash_frame_data();
 }
