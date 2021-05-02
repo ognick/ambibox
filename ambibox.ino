@@ -2,20 +2,28 @@
 #define LED_PIN             13      // Led strip pin
 #define CURRENT_LIMIT       2000    // Electric current limit (milliamps). 0 - disable
 #define START_FLASHES       500     // Start flashes delay (milliseconds). 0 - disable
-#define SERIAL_RATE         57600   // Rate connection
+#define SERIAL_RATE         115200  // Rate connection
 
 #define PR_PIN                 4    // Photo resistor pin
 #define PR_UPPER_BOUND         100  // Maximum required external bright level. 0 - always on
 #define PR_CHECK_INTERVAL      100  // Check brightness (milliseconds)
 #define PR_SEQUENCE_LEN        10   // Number of equal measurements. Change state delay PR_CHECK_INTERVAL * PR_SERIAL_LEN milliseconds
-
+#define OFF_TIMEOUT            8000 // ms to switch off after no data was received, set 0 to deactivate
 #include <FastLED.h>
 
 CRGB strip[NUM_LEDS];
 
-uint8_t wait_read_u8()
+uint8_t wait_read_u8(bool& interrupted)
 {
-    while (!Serial.available()) {}
+    const uint32_t off_timer = millis() + OFF_TIMEOUT;
+    while (!Serial.available()) 
+    {
+      if ( OFF_TIMEOUT > 0 && millis() > off_timer) {
+        interrupted = true;
+        return 0;
+      }
+    }
+    interrupted = false;
     return Serial.read();
 }
 
@@ -24,29 +32,28 @@ void wait_magic_world()
     static const uint8_t prefix[] = { 'A', 'd', 'a' };
     for (uint8_t i = 0; i < sizeof(prefix); ++i)
     {
-        if (prefix[i] != wait_read_u8())
+        bool interrupted;
+        if (prefix[i] != wait_read_u8(interrupted) || interrupted)
         {
             i = 0;
         }
     }
 }
 
-bool check_sum()
+uint32_t wait_handshake(bool& interrupted)
 {
-    const uint8_t hi = wait_read_u8();
-    const uint8_t lo = wait_read_u8();
-    const uint8_t checksum = wait_read_u8();
-    return (checksum == (hi ^ lo ^ 0x55));
-}
-
-void wait_handshake()
-{
+    uint8_t hi = 0;
+    uint8_t lo = 0;
     bool done = false;
     while (!done)
     {
         wait_magic_world();
-        done = check_sum();
+        hi = wait_read_u8(interrupted); if (interrupted) break;
+        lo = wait_read_u8(interrupted); if (interrupted) break;
+        const uint8_t checksum = wait_read_u8(interrupted); if (interrupted) break;
+        done = (checksum == (hi ^ lo ^ 0x55));
     }
+    return (hi<<8) + lo + 1;
 }
 
 void show_color(const CRGB& color, uint32_t sleep = START_FLASHES)
@@ -100,9 +107,54 @@ void flash_frame_data()
   }
 }
 
+uint32_t ada_timer_ms = 0;
+
+void tick()
+{
+  uint32_t now_ms = millis();
+  if (now_ms > ada_timer_ms)
+  {
+      ada_timer_ms = now_ms + OFF_TIMEOUT;  
+      Serial.print("Ada\n");
+  }
+  if (!is_enabled())
+  {
+      delay(PR_CHECK_INTERVAL);
+      return;
+  }
+
+  bool inetrrupted = true;
+  uint32_t num_leds = wait_handshake(inetrrupted); if (inetrrupted) return;
+  if (num_leds > NUM_LEDS) num_leds = NUM_LEDS;
+
+  for (uint8_t i = 0; i < num_leds; i++)
+  {
+      strip[i].r = wait_read_u8(inetrrupted); if (inetrrupted) break;
+      strip[i].g = wait_read_u8(inetrrupted); if (inetrrupted) break;
+      strip[i].b = wait_read_u8(inetrrupted); if (inetrrupted) break;   
+  } 
+
+  if (!inetrrupted)
+  {
+    FastLED.show();
+  }
+  // FastLED.show() disables interrupts while writing out WS2812 data. It leads to getting corrupted frames.
+//        flash_frame_data();
+}
+
+void fast_loop()
+{
+    for (;;)
+    {
+      tick();
+    }
+}
+
 void setup()
 {
-    FastLED.addLeds<WS2812, LED_PIN, GRB> (strip, NUM_LEDS);
+    Serial.begin(SERIAL_RATE);
+    
+    FastLED.addLeds<WS2812B, LED_PIN, GRB> (strip, NUM_LEDS);
     if (CURRENT_LIMIT > 0)
     {
         FastLED.setMaxPowerInVoltsAndMilliamps(5, CURRENT_LIMIT);
@@ -116,27 +168,11 @@ void setup()
         show_color(CRGB(0, 0, 0));
     }
 
-    Serial.begin(SERIAL_RATE);
-    Serial.print("Ada\n");
+    delay(100);   
+    fast_loop();
 }
 
 void loop()
 {
-    if (!is_enabled())
-    {
-        return;
-    }
-
-    wait_handshake();
-
-    for (uint8_t i = 0; i < NUM_LEDS; i++)
-    {
-        strip[i].r = wait_read_u8();
-        strip[i].g = wait_read_u8();
-        strip[i].b = wait_read_u8();
-    }
-
-    FastLED.show();
-    // FastLED.show() disables interrupts while writing out WS2812 data. It leads to getting corrupted frames. 
-    flash_frame_data();
+//  tick();
 }
