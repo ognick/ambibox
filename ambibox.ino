@@ -40,7 +40,7 @@ void wait_magic_world()
     }
 }
 
-uint32_t wait_handshake(bool& interrupted)
+uint32_t wait_header(bool& interrupted)
 {
     uint8_t hi = 0;
     uint8_t lo = 0;
@@ -48,9 +48,9 @@ uint32_t wait_handshake(bool& interrupted)
     while (!done)
     {
         wait_magic_world();
-        hi = wait_read_u8(interrupted); if (interrupted) break;
-        lo = wait_read_u8(interrupted); if (interrupted) break;
-        const uint8_t checksum = wait_read_u8(interrupted); if (interrupted) break;
+        hi = wait_read_u8(interrupted); if (interrupted) continue;
+        lo = wait_read_u8(interrupted); if (interrupted) continue;
+        const uint8_t checksum = wait_read_u8(interrupted); if (interrupted) continue;
         done = (checksum == (hi ^ lo ^ 0x55));
     }
     return (hi<<8) + lo + 1;
@@ -124,10 +124,9 @@ void tick()
   }
 
   bool inetrrupted = true;
-  uint32_t num_leds = wait_handshake(inetrrupted); if (inetrrupted) return;
-  if (num_leds > NUM_LEDS) num_leds = NUM_LEDS;
-
-  for (uint8_t i = 0; i < num_leds; i++)
+  const uint32_t num_leds = wait_header(inetrrupted); if (inetrrupted) return;
+  if (num_leds != NUM_LEDS) return;
+  for (uint8_t i = 0; i < NUM_LEDS; i++)
   {
       strip[i].r = wait_read_u8(inetrrupted); if (inetrrupted) break;
       strip[i].g = wait_read_u8(inetrrupted); if (inetrrupted) break;
@@ -138,8 +137,9 @@ void tick()
   {
     FastLED.show();
   }
+  
   // FastLED.show() disables interrupts while writing out WS2812 data. It leads to getting corrupted frames.
-//        flash_frame_data();
+  flash_frame_data();
 }
 
 void fast_loop()
