@@ -1,14 +1,17 @@
 #define NUM_LEDS            114     // Total number of led in strip (width + height) * 2
 #define LED_PIN             13      // Led strip pin
-#define CURRENT_LIMIT       2000    // Electric current limit (milliamps). 0 - disable
+#define CURRENT_LIMIT       3200    // Electric current limit (milliamps). 0 - disable
 #define START_FLASHES       500     // Start flashes delay (milliseconds). 0 - disable
 #define SERIAL_RATE         115200  // Rate connection
 
-#define PR_PIN                 4    // Photo resistor pin
-#define PR_UPPER_BOUND         100  // Maximum required external bright level. 0 - always on
-#define PR_CHECK_INTERVAL      100  // Check brightness (milliseconds)
-#define PR_SEQUENCE_LEN        10   // Number of equal measurements. Change state delay PR_CHECK_INTERVAL * PR_SERIAL_LEN milliseconds
-#define OFF_TIMEOUT            8000 // ms to switch off after no data was received, set 0 to deactivate
+#define PR_PIN              4       // Photo resistor pin
+#define PR_UPPER_BOUND      120     // Maximum required external bright level. 0 - always on
+#define PR_LOWER_BOUND      100     // Minimum required external bright level
+#define PR_CHECK_INTERVAL   100     // Check brightness (milliseconds)
+#define PR_SEQUENCE_LEN     20      // Number of equal measurements. Change state delay PR_CHECK_INTERVAL * PR_SERIAL_LEN milliseconds
+#define OFF_TIMEOUT         8000    // ms to switch off after no data was received, set 0 to deactivate
+
+
 #include <FastLED.h>
 
 CRGB strip[NUM_LEDS];
@@ -73,9 +76,8 @@ bool is_enabled()
         {
             pr_last_check_time = now;
             const uint32_t pr_value = analogRead(PR_PIN);
-            const bool curr_enabled = pr_value < PR_UPPER_BOUND;
             static uint8_t sequence_len = 0;
-            if (curr_enabled != enabled)
+            if ((!enabled && pr_value < PR_LOWER_BOUND) || (enabled && pr_value > PR_UPPER_BOUND))
             {
                 ++sequence_len;
                 if (sequence_len == PR_SEQUENCE_LEN)
@@ -85,7 +87,7 @@ bool is_enabled()
                         FastLED.clear();
                         FastLED.show();
                     }
-                    enabled = curr_enabled;
+                    enabled = !enabled;
                     sequence_len = 0;
                 }
             }
@@ -117,25 +119,24 @@ void tick()
       ada_timer_ms = now_ms + OFF_TIMEOUT;  
       Serial.print("Ada\n");
   }
-  if (!is_enabled())
+  
+  if (is_enabled())
   {
-      delay(PR_CHECK_INTERVAL);
-      return;
-  }
 
-  bool inetrrupted = true;
-  const uint32_t num_leds = wait_header(inetrrupted); if (inetrrupted) return;
-  if (num_leds != NUM_LEDS) return;
-  for (uint8_t i = 0; i < NUM_LEDS; i++)
-  {
-      strip[i].r = wait_read_u8(inetrrupted); if (inetrrupted) break;
-      strip[i].g = wait_read_u8(inetrrupted); if (inetrrupted) break;
-      strip[i].b = wait_read_u8(inetrrupted); if (inetrrupted) break;   
-  } 
-
-  if (!inetrrupted)
-  {
-    FastLED.show();
+    bool inetrrupted = true;
+    const uint32_t num_leds = wait_header(inetrrupted); if (inetrrupted) return;
+    if (num_leds != NUM_LEDS) return;
+    for (uint8_t i = 0; i < NUM_LEDS; i++)
+    {
+        strip[i].r = wait_read_u8(inetrrupted); if (inetrrupted) break;
+        strip[i].g = wait_read_u8(inetrrupted); if (inetrrupted) break;
+        strip[i].b = wait_read_u8(inetrrupted); if (inetrrupted) break;   
+    } 
+  
+    if (!inetrrupted)
+    {
+      FastLED.show();
+    }
   }
   
   // FastLED.show() disables interrupts while writing out WS2812 data. It leads to getting corrupted frames.
@@ -162,13 +163,13 @@ void setup()
 
     if (START_FLASHES > 0)
     {
+        show_color(CRGB(255, 255, 255));
         show_color(CRGB(255, 0, 0));
-        show_color(CRGB(0, 255, 0));
-        show_color(CRGB(0, 0, 255));
+        show_color(CRGB(255, 255, 255));
         show_color(CRGB(0, 0, 0));
     }
 
-    delay(100);   
+    delay(1000);   
     fast_loop();
 }
 
